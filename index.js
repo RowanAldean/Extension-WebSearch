@@ -24,6 +24,7 @@ const WEBSEARCH_SOURCES = {
     PLUGIN: 'plugin',
     SEARXNG: 'searxng',
     TAVILY: 'tavily',
+    PARALLEL: 'parallel',
     KOBOLDCPP: 'koboldcpp',
     SERPER: 'serper',
     ZAI: 'zai',
@@ -168,6 +169,11 @@ async function renderRegexRules() {
 }
 
 async function isSearchAvailable() {
+    if (extension_settings.websearch.source === WEBSEARCH_SOURCES.PARALLEL && (!SECRET_KEYS.PARALLEL || !secret_state[SECRET_KEYS.PARALLEL])) {
+        console.debug('WebSearch: Parallel support or API key is unavailable');
+        return false;
+    }
+
     if (extension_settings.websearch.source === WEBSEARCH_SOURCES.SERPAPI && !secret_state[SECRET_KEYS.SERPAPI]) {
         console.debug('WebSearch: no SerpApi key found');
         return false;
@@ -1034,6 +1040,58 @@ async function doTavilyQuery(query) {
 }
 
 /**
+ * Performs a search query via Parallel.
+ * @param {string} query Search query
+ * @returns {Promise<{textBits: string[], links: string[], images: string[]}>} Extracted text
+ */
+async function doParallelQuery(query) {
+    const textBits = [];
+    const links = [];
+    const budget = Math.min(20000, Math.max(0, Math.floor(Number(extension_settings.websearch.budget) || 0)));
+    if (!budget) return { textBits, links, images: [] };
+
+    const result = await fetch('/api/search/parallel', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ query, max_chars_total: budget }),
+    });
+    if (!result.ok) {
+        const messages = {
+            401: 'Check your Parallel API key.',
+            402: 'Your Parallel account has insufficient credits.',
+            429: 'Parallel rate limit reached. Try again later.',
+            404: 'Update SillyTavern to a version with Parallel search support.',
+            504: 'Parallel search timed out. Try again later.',
+        };
+        toastr.warning(messages[result.status] || `Parallel search failed (HTTP ${result.status}).`, 'Web Search');
+        throw new Error(`Parallel search failed (HTTP ${result.status})`);
+    }
+
+    const data = await result.json();
+    if (!Array.isArray(data?.results)) throw new Error('Invalid Parallel search response');
+
+    let remaining = budget;
+    for (const item of data.results) {
+        let url;
+        try {
+            url = new URL(item?.url);
+        } catch {
+            continue;
+        }
+        if (!['http:', 'https:'].includes(url.protocol) || links.includes(url.href)) continue;
+        const title = typeof item.title === 'string' ? item.title.trim().slice(0, 200) : '';
+        const header = `${title ? title + '\n' : ''}${url.href}\n`;
+        if (header.length >= remaining) continue;
+        const excerpts = Array.isArray(item.excerpts) ? item.excerpts.filter(x => typeof x === 'string').join('\n') : '';
+        const text = header + excerpts.slice(0, remaining - header.length - 1).trimEnd();
+        textBits.push(text);
+        links.push(url.href);
+        remaining -= text.length + 1;
+    }
+    return { textBits, links, images: [] };
+}
+
+/**
  * Performs a search query via KoboldCpp.
  * @param {string} query Search query
  * @returns {Promise<{textBits: string[], links: string[], images: string[]}>} Lines of search results.
@@ -1284,7 +1342,7 @@ async function probeSeleniumSearchPlugin() {
  */
 async function performSearchRequest(query, options = { useCache: true }) {
     // Check if the query is cached
-    const cacheKey = `query_${query}`;
+    const cacheKey = `query_${extension_settings.websearch.source}_${extension_settings.websearch.budget}_${query}`;
     const cacheLifetime = extension_settings.websearch.cacheLifetime;
     const cachedResult = await storage.getItem(cacheKey);
 
@@ -1316,6 +1374,8 @@ async function performSearchRequest(query, options = { useCache: true }) {
                     return await doSearxngQuery(query);
                 case WEBSEARCH_SOURCES.TAVILY:
                     return await doTavilyQuery(query);
+                case WEBSEARCH_SOURCES.PARALLEL:
+                    return await doParallelQuery(query);
                 case WEBSEARCH_SOURCES.KOBOLDCPP:
                     return await doKoboldCppQuery(query);
                 case WEBSEARCH_SOURCES.SERPER:
@@ -1643,17 +1703,22 @@ jQuery(async () => {
         $('#serpapi_settings').toggle(extension_settings.websearch.source === WEBSEARCH_SOURCES.SERPAPI);
         $('#websearch_searxng_settings').toggle(extension_settings.websearch.source === WEBSEARCH_SOURCES.SEARXNG);
         $('#websearch_tavily_settings').toggle(extension_settings.websearch.source === WEBSEARCH_SOURCES.TAVILY);
+        $('#websearch_parallel_settings').toggle(extension_settings.websearch.source === WEBSEARCH_SOURCES.PARALLEL);
         $('#websearch_koboldcpp_settings').toggle(extension_settings.websearch.source === WEBSEARCH_SOURCES.KOBOLDCPP);
         $('#websearch_serper_settings').toggle(extension_settings.websearch.source === WEBSEARCH_SOURCES.SERPER);
         $('#websearch_zai_settings').toggle(extension_settings.websearch.source === WEBSEARCH_SOURCES.ZAI);
 
         $('#serpapi_key').toggleClass('success', !!secret_state[SECRET_KEYS.SERPAPI]);
         $('#tavily_key').toggleClass('success', !!secret_state[SECRET_KEYS.TAVILY]);
+        $('#parallel_key').toggleClass('success', !!secret_state[SECRET_KEYS.PARALLEL]);
         $('#serper_key').toggleClass('success', !!secret_state[SECRET_KEYS.SERPER]);
     }
 
     const getContainer = () => $(document.getElementById('websearch_container') ?? document.getElementById('extensions_settings2'));
     getContainer().append(html);
+    $('#websearch_source option[value="parallel"]').prop('disabled', !SECRET_KEYS.PARALLEL);
+    $('#parallel_key').toggle(!!SECRET_KEYS.PARALLEL);
+    $('#websearch_parallel_update').toggle(!SECRET_KEYS.PARALLEL);
     $('#websearch_source').val(extension_settings.websearch.source);
     $('#websearch_source').on('change', () => {
         extension_settings.websearch.source = String($('#websearch_source').find(':selected').val());
@@ -1677,6 +1742,11 @@ jQuery(async () => {
     });
     $('#tavily_key').on('click', async () => {
         await handleApiKeyManagement(SECRET_KEYS.TAVILY, 'Tavily', $('#tavily_key'));
+    });
+    $('#parallel_key').on('click', async () => {
+        if (SECRET_KEYS.PARALLEL) {
+            await handleApiKeyManagement(SECRET_KEYS.PARALLEL, 'Parallel', $('#parallel_key'));
+        }
     });
     $('#serper_key').on('click', async () => {
         await handleApiKeyManagement(SECRET_KEYS.SERPER, 'Serper', $('#serper_key'));

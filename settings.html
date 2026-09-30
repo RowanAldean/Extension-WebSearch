@@ -14,6 +14,7 @@
                 <select id="websearch_source">
                     <option value="extras">Extras API (deprecated)</option>
                     <option value="koboldcpp">KoboldCpp</option>
+                    <option value="parallel">Parallel</option>
                     <option value="searxng">SearXNG</option>
                     <option value="plugin">Selenium Plugin</option>
                     <option value="serpapi">SerpApi</option>
@@ -62,6 +63,19 @@
                             <span>Click to set</span>
                         </div>
                     </div>
+                </div>
+                <div id="websearch_parallel_settings">
+                    <div class="flex-container alignItemsBaseline">
+                        <h4 for="parallel_key" class="flex1 margin0">
+                            <a href="https://platform.parallel.ai/" target="_blank" rel="noopener noreferrer">Parallel API Key</a>
+                        </h4>
+                        <div id="parallel_key" class="menu_button menu_button_icon">
+                            <i class="fa-solid fa-key"></i>
+                            <span>Click to set</span>
+                        </div>
+                    </div>
+                    <span id="websearch_parallel_update">Update SillyTavern to a version with Parallel search support.</span>
+                    <small>Returns page titles, source URLs and excerpts. Images are not supported.</small>
                 </div>
                 <div id="websearch_serper_settings">
                     <div class="flex-container alignItemsBaseline">

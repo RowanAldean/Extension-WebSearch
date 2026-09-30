@@ -38,6 +38,14 @@ Requires an API key.
 
 Get the key here: <https://app.tavily.com/>
 
+### Parallel
+
+Requires a Parallel API key and a SillyTavern build with the `/api/search/parallel` endpoint. The source is disabled on older builds without Parallel credential support.
+
+Get a key at <https://platform.parallel.ai/>, select **Parallel**, click **Click to set**, and enable Web Search. The key is stored in SillyTavern's per-user secret manager. Searches use the [Parallel Search API](https://docs.parallel.ai/search/search-quickstart) in `fast` mode and are billed to your Parallel account.
+
+Returns titles, source URLs and excerpts within the configured prompt budget (up to 20,000 characters). Supports the usual triggers, `/websearch`, function tools and Visit Links. Images are not supported. Authentication, credit, rate-limit and timeout errors are shown in the UI; failed searches are not cached.
+
 ### KoboldCpp
 
 KoboldCpp URL must be provided in Text Completion API settings. KoboldCpp version must be >= 1.81.1 and WebSearch module must be enabled on startup: enable Network => Enable WebSearch in the GUI launcher or add `--websearch` to the command line.
@@ -157,6 +165,11 @@ Example: /websearch links=off snippets=on how to make a sandwich
 1. Answer.
 2. Page contents.
 3. Images (up to 5).
+
+#### Parallel
+
+1. Page titles and source URLs.
+2. Relevant page excerpts.
 
 #### KoboldCpp
 
